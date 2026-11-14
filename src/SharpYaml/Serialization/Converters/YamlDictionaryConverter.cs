@@ -207,6 +207,7 @@ internal static class YamlDictionaryConverterHelper
         var comparer = options.PropertyNameCaseInsensitive ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         var mergeEnabled = options.Schema is YamlSchemaKind.Core or YamlSchemaKind.Extended;
         HashSet<string>? explicitKeys = mergeEnabled ? new HashSet<string>(comparer) : null;
+        HashSet<string>? mergedKeys = null;
         HashSet<string>? seenKeys = options.DuplicateKeyHandling == YamlDuplicateKeyHandling.LastWins ? null : new HashSet<string>(comparer);
         if (reader.ReferenceReader is not null && reader.Anchor is not null)
         {
@@ -226,11 +227,16 @@ internal static class YamlDictionaryConverterHelper
 
             if (mergeEnabled && string.Equals(key, "<<", StringComparison.Ordinal))
             {
-                ReadAndApplyMerge<TDictionary, TValue>(reader, ref valueConverter, dictionary, explicitKeys, createDictionary, containerKind, declaringType);
+                if (options.InvalidValueHandling != YamlInvalidValueHandling.FailFast)
+                {
+                    mergedKeys ??= new HashSet<string>(comparer);
+                }
+                ReadAndApplyMerge<TDictionary, TValue>(reader, ref valueConverter, dictionary, explicitKeys, mergedKeys, createDictionary, containerKind, declaringType);
                 continue;
             }
 
             explicitKeys?.Add(key);
+            var wasMerged = mergedKeys?.Remove(key) == true;
 
             var wasSeen = seenKeys is not null && !seenKeys.Add(key);
             if (wasSeen && options.DuplicateKeyHandling == YamlDuplicateKeyHandling.Error)
@@ -247,6 +253,10 @@ internal static class YamlDictionaryConverterHelper
             if (reader.TryReadItem(valueConverter, typeof(TValue), declaringType, dictionary, out var value))
             {
                 dictionary[key] = (TValue)value!;
+            }
+            else if (wasMerged)
+            {
+                dictionary.Remove(key);
             }
         }
 
@@ -290,7 +300,7 @@ internal static class YamlDictionaryConverterHelper
 
         dictionary ??= createDictionary();
         var options = reader.Options;
-        HashSet<TKey>? droppedKeys = null;
+        ISet<TKey>? droppedKeys = null;
         if (reader.ReferenceReader is not null && reader.Anchor is not null)
         {
             reader.ReferenceReader.Register(reader.Anchor, dictionary);
@@ -361,7 +371,7 @@ internal static class YamlDictionaryConverterHelper
             }
             else if (options.DuplicateKeyHandling != YamlDuplicateKeyHandling.LastWins)
             {
-                (droppedKeys ??= new HashSet<TKey>()).Add(key);
+                (droppedKeys ??= CreateDroppedKeySet(dictionary)).Add(key);
             }
         }
 
@@ -369,11 +379,24 @@ internal static class YamlDictionaryConverterHelper
         return dictionary;
     }
 
+    private static ISet<TKey> CreateDroppedKeySet<TKey, TValue>(IDictionary<TKey, TValue> dictionary)
+        => dictionary switch
+        {
+            Dictionary<TKey, TValue> value => new HashSet<TKey>(value.Comparer),
+            SortedDictionary<TKey, TValue> value => new SortedSet<TKey>(value.Comparer),
+            SortedList<TKey, TValue> value => new SortedSet<TKey>(value.Comparer),
+#if NET9_0_OR_GREATER
+            OrderedDictionary<TKey, TValue> value => new HashSet<TKey>(value.Comparer),
+#endif
+            _ => new HashSet<TKey>(),
+        };
+
     private static void ReadAndApplyMerge<TDictionary, TValue>(
         YamlReader reader,
         ref YamlConverter? valueConverter,
         TDictionary dictionary,
         HashSet<string>? explicitKeys,
+        HashSet<string>? mergedKeys,
         Func<YamlSerializerOptions, TDictionary> createDictionary,
         string containerKind,
         Type declaringType)
@@ -393,7 +416,7 @@ internal static class YamlDictionaryConverterHelper
                 return;
             }
 
-            ApplyMergeDictionary<TValue>(dictionary, merged, explicitKeys);
+            ApplyMergeDictionary<TValue>(dictionary, merged, explicitKeys, mergedKeys);
             return;
         }
 
@@ -410,7 +433,7 @@ internal static class YamlDictionaryConverterHelper
                 var merged = ReadStringDictionary<TDictionary, TValue>(reader, ref valueConverter, createDictionary, containerKind, declaringType);
                 if (merged is not null)
                 {
-                    ApplyMergeDictionary<TValue>(dictionary, merged, explicitKeys);
+                    ApplyMergeDictionary<TValue>(dictionary, merged, explicitKeys, mergedKeys);
                 }
             }
 
@@ -424,7 +447,8 @@ internal static class YamlDictionaryConverterHelper
     private static void ApplyMergeDictionary<TValue>(
         IDictionary<string, TValue> target,
         IEnumerable<KeyValuePair<string, TValue>> merged,
-        HashSet<string>? explicitKeys)
+        HashSet<string>? explicitKeys,
+        HashSet<string>? mergedKeys)
     {
         foreach (var pair in merged)
         {
@@ -434,6 +458,7 @@ internal static class YamlDictionaryConverterHelper
             }
 
             target[pair.Key] = pair.Value;
+            mergedKeys?.Add(pair.Key);
         }
     }
 }

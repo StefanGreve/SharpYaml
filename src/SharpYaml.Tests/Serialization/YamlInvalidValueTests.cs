@@ -703,6 +703,114 @@ public sealed class YamlInvalidValueTests
     }
 
     [TestMethod]
+    [DataRow(false, YamlDuplicateKeyHandling.Error)]
+    [DataRow(true, YamlDuplicateKeyHandling.Error)]
+    [DataRow(false, YamlDuplicateKeyHandling.FirstWins)]
+    [DataRow(true, YamlDuplicateKeyHandling.FirstWins)]
+    [DataRow(false, YamlDuplicateKeyHandling.LastWins)]
+    [DataRow(true, YamlDuplicateKeyHandling.LastWins)]
+    public void Skip_DropsAnInvalidExplicitEntryAfterItsMerge(bool generated, YamlDuplicateKeyHandling duplicateHandling)
+    {
+        var options = new YamlSerializerOptions { InvalidValueHandling = YamlInvalidValueHandling.Skip, DuplicateKeyHandling = duplicateHandling };
+
+        var root = Deserialize<InvalidValueCollections>("Ports: {<<: {a: 1, b: 2}, a: abc}\n", options, generated)!;
+
+        Assert.AreEqual(1, root.Ports.Count);
+        Assert.AreEqual(2, root.Ports["b"]);
+
+        var dictionary = Deserialize<Dictionary<string, int>>("<<: {a: 1, b: 2}\na: abc\n", options, generated)!;
+        Assert.AreEqual(1, dictionary.Count);
+        Assert.AreEqual(2, dictionary["b"]);
+    }
+
+    [TestMethod]
+    [DynamicData(nameof(Modes))]
+    public void Skip_DroppedPopulatedDictionaryKeysUseTheDictionaryComparer(bool generated)
+    {
+        var options = new YamlSerializerOptions
+        {
+            InvalidValueHandling = YamlInvalidValueHandling.Skip,
+            DuplicateKeyHandling = YamlDuplicateKeyHandling.Error,
+        };
+
+        foreach (var member in new[] { "ByNumber", "NumberMap", "SortedMap", "SortedListMap", "OrderedMap" })
+        {
+            var yaml = member + ": {1: abc, -1: 2}\n";
+            var exception = Assert.ThrowsExactly<YamlException>(() => Deserialize<InvalidValuePopulateRoot>(yaml, options, generated), member);
+
+            Assert.AreEqual("Duplicate mapping key '-1'.", exception.Reason);
+
+            var root = Deserialize<InvalidValuePopulateRoot>(yaml, options with { DuplicateKeyHandling = YamlDuplicateKeyHandling.FirstWins }, generated)!;
+            var dictionary = (IDictionary<int, int>)typeof(InvalidValuePopulateRoot).GetProperty(member)!.GetValue(root)!;
+            Assert.IsEmpty(dictionary, member);
+        }
+    }
+
+    [TestMethod]
+    [DynamicData(nameof(Modes))]
+    public void Skip_KeepsAnEarlierExplicitDictionaryValueUnderLastWins(bool generated)
+    {
+        var options = new YamlSerializerOptions { InvalidValueHandling = YamlInvalidValueHandling.Skip, DuplicateKeyHandling = YamlDuplicateKeyHandling.LastWins };
+
+        var root = Deserialize<InvalidValueCollections>("Ports: {a: 1, a: abc}\nByNumber: {1: 1, 1: abc}\n", options, generated)!;
+
+        Assert.AreEqual(1, root.Ports["a"]);
+        Assert.AreEqual(1, root.ByNumber[1]);
+
+        var dictionary = Deserialize<Dictionary<string, int>>("a: 1\na: abc\n", options, generated)!;
+        Assert.AreEqual(1, dictionary["a"]);
+    }
+
+    [TestMethod]
+    [DynamicData(nameof(Modes))]
+    public void Skip_KeepsAValidExplicitValueAfterOverridingAMerge(bool generated)
+    {
+        var options = new YamlSerializerOptions { InvalidValueHandling = YamlInvalidValueHandling.Skip, DuplicateKeyHandling = YamlDuplicateKeyHandling.LastWins, PropertyNameCaseInsensitive = true };
+
+        var root = Deserialize<InvalidValueCollections>("Ports: {<<: [{A: 1}], a: 2, A: abc}\n", options, generated)!;
+
+        Assert.AreEqual(1, root.Ports.Count);
+        Assert.AreEqual(2, root.Ports["a"]);
+    }
+
+    [TestMethod]
+    [DynamicData(nameof(Modes))]
+    public void Skip_DropsAMergedObjectDictionaryEntryInEveryReadPath(bool generated)
+    {
+        var options = new YamlSerializerOptions
+        {
+            InvalidValueHandling = YamlInvalidValueHandling.Skip,
+            Converters = [new InvalidValueObjectIntConverter()],
+        };
+
+        var dictionary = Deserialize<Dictionary<string, object>>("<<: [{a: 1, b: 2}]\na: abc\n", options, generated)!;
+        Assert.AreEqual(1, dictionary.Count);
+        Assert.AreEqual(2, dictionary["b"]);
+
+        var root = Deserialize<InvalidValueCollections>("ObjectPorts: {<<: {a: 1, b: 2}, a: abc}\n", options, generated)!;
+        Assert.AreEqual(1, root.ObjectPorts.Count);
+        Assert.AreEqual(2, root.ObjectPorts["b"]);
+
+        var populated = Deserialize<InvalidValuePopulateRoot>("ObjectPorts: {<<: {a: 1, b: 2}, a: abc}\n", options, generated)!;
+        Assert.AreEqual(2, populated.ObjectPorts.Count);
+        Assert.AreEqual(2, populated.ObjectPorts["b"]);
+        Assert.AreEqual(3, populated.ObjectPorts["keep"]);
+    }
+
+    [TestMethod]
+    [DynamicData(nameof(Modes))]
+    public void Skip_KeepsAnExistingEntryWhenPopulatingADictionary(bool generated)
+    {
+        var options = new YamlSerializerOptions { InvalidValueHandling = YamlInvalidValueHandling.Skip, DuplicateKeyHandling = YamlDuplicateKeyHandling.LastWins };
+
+        var root = Deserialize<InvalidValuePopulateRoot>("Ports: {keep: abc, valid: 2}\n", options, generated)!;
+
+        Assert.AreEqual(2, root.Ports.Count);
+        Assert.AreEqual(1, root.Ports["keep"]);
+        Assert.AreEqual(2, root.Ports["valid"]);
+    }
+
+    [TestMethod]
     [DynamicData(nameof(Modes))]
     public void Skip_DropsAnInvalidEntryOfARootDictionary(bool generated)
     {
@@ -980,6 +1088,35 @@ internal sealed class InvalidValuePopulateRoot
 
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public Dictionary<string, int> Ports { get; } = new() { ["keep"] = 1 };
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public Dictionary<int, int> ByNumber { get; } = new(InvalidValueAbsoluteKeyComparer.Instance);
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public IDictionary<int, int> NumberMap { get; } = new Dictionary<int, int>(InvalidValueAbsoluteKeyComparer.Instance);
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public IDictionary<int, int> SortedMap { get; } = new SortedDictionary<int, int>(InvalidValueAbsoluteKeyComparer.Instance);
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public IDictionary<int, int> SortedListMap { get; } = new SortedList<int, int>(InvalidValueAbsoluteKeyComparer.Instance);
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public IDictionary<int, int> OrderedMap { get; } = new OrderedDictionary<int, int>(InvalidValueAbsoluteKeyComparer.Instance);
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public Dictionary<string, object> ObjectPorts { get; } = new() { ["keep"] = 3 };
+}
+
+internal sealed class InvalidValueAbsoluteKeyComparer : IEqualityComparer<int>, IComparer<int>
+{
+    public static readonly InvalidValueAbsoluteKeyComparer Instance = new();
+
+    public bool Equals(int x, int y) => Math.Abs(x) == Math.Abs(y);
+
+    public int GetHashCode(int value) => Math.Abs(value).GetHashCode();
+
+    public int Compare(int x, int y) => Math.Abs(x).CompareTo(Math.Abs(y));
 }
 
 internal sealed class InvalidValueCollections
@@ -1000,6 +1137,7 @@ internal sealed class InvalidValueCollections
     public Collection<int> Custom { get; set; } = new();
     public List<List<int>> Matrix { get; set; } = new();
     public Dictionary<string, int> Ports { get; set; } = new();
+    public Dictionary<string, object> ObjectPorts { get; set; } = new();
     public Dictionary<int, int> ByNumber { get; set; } = new();
     public List<InvalidValueRejecting> Rejected { get; set; } = new();
     public List<InvalidValueConsuming> Consumed { get; set; } = new();
@@ -1062,6 +1200,15 @@ internal sealed class InvalidValueFormattedConverter : YamlConverter<InvalidValu
     public override void Write(YamlWriter writer, InvalidValueFormatted value) => writer.WriteScalar(string.Empty);
 }
 
+internal sealed class InvalidValueObjectIntConverter : YamlConverter
+{
+    public override bool CanConvert(Type typeToConvert) => typeToConvert == typeof(object);
+
+    public override object Read(YamlReader reader, Type typeToConvert) => reader.GetConverter(typeof(int)).Read(reader, typeof(int))!;
+
+    public override void Write(YamlWriter writer, object value) => writer.GetConverter(typeof(int)).Write(writer, value);
+}
+
 [YamlSerializable(typeof(InvalidValueRoot))]
 [YamlSerializable(typeof(InvalidValueRequired))]
 [YamlSerializable(typeof(InvalidValueConstructed))]
@@ -1070,6 +1217,7 @@ internal sealed class InvalidValueFormattedConverter : YamlConverter<InvalidValu
 [YamlSerializable(typeof(InvalidValueCollections))]
 [YamlSerializable(typeof(List<int>))]
 [YamlSerializable(typeof(Dictionary<string, int>))]
+[YamlSerializable(typeof(Dictionary<string, object>))]
 [YamlSerializable(typeof(InvalidValueZoo))]
 [YamlSerializable(typeof(InvalidValueRejecting))]
 [YamlSerializable(typeof(InvalidValueConsuming))]

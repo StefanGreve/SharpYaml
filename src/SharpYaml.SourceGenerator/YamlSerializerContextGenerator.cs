@@ -3669,6 +3669,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("        global::System.Collections.Generic.HashSet<string>? explicitKeys = mergeEnabled");
                 builder.Append("            ? new global::System.Collections.Generic.HashSet<string>(").Append(propertyNameComparerExpression).AppendLine(")");
                 builder.AppendLine("            : null;");
+                builder.AppendLine("        global::System.Collections.Generic.HashSet<string>? mergedKeys = null;");
                 builder.AppendLine("        global::System.Collections.Generic.HashSet<string>? seenKeys = mergeEnabled");
                 builder.Append("            ? new global::System.Collections.Generic.HashSet<string>(").Append(propertyNameComparerExpression).AppendLine(")");
                 builder.AppendLine("            : null;");
@@ -3707,6 +3708,10 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             {
                 builder.AppendLine("            if (mergeEnabled && global::System.String.Equals(key, \"<<\", global::System.StringComparison.Ordinal))");
                 builder.AppendLine("            {");
+                builder.AppendLine("                if (reader.Options.InvalidValueHandling != global::SharpYaml.YamlInvalidValueHandling.FailFast)");
+                builder.AppendLine("                {");
+                builder.Append("                    mergedKeys ??= new global::System.Collections.Generic.HashSet<string>(").Append(propertyNameComparerExpression).AppendLine(");");
+                builder.AppendLine("                }");
                 builder.AppendLine("                if (reader.TokenType == global::SharpYaml.Serialization.YamlTokenType.Scalar && global::SharpYaml.Serialization.YamlScalar.IsNull(reader))");
                 builder.AppendLine("                {");
                 builder.AppendLine("                    reader.Read();");
@@ -3723,6 +3728,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("                                continue;");
                 builder.AppendLine("                            }");
                 builder.AppendLine("                            dictionary[pair.Key] = pair.Value;");
+                builder.AppendLine("                            mergedKeys?.Add(pair.Key);");
                 builder.AppendLine("                        }");
                 builder.AppendLine("                    }");
                 builder.AppendLine("                }");
@@ -3745,6 +3751,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("                                    continue;");
                 builder.AppendLine("                                }");
                 builder.AppendLine("                                dictionary[pair.Key] = pair.Value;");
+                builder.AppendLine("                                mergedKeys?.Add(pair.Key);");
                 builder.AppendLine("                            }");
                 builder.AppendLine("                        }");
                 builder.AppendLine("                    }");
@@ -3757,6 +3764,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("                continue;");
                 builder.AppendLine("            }");
                 builder.AppendLine("            explicitKeys?.Add(key);");
+                builder.AppendLine("            var wasMerged = mergedKeys?.Remove(key) == true;");
             }
 
             if (dictionaryKeyType.SpecialType == SpecialType.System_String)
@@ -3769,7 +3777,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                     builder.AppendLine("            }");
                 }
 
-                EmitRecoverableItemRead(builder, sourceGenerationOptions, dictionaryValueType, indexByType, "value", "dictionary[key] = value;", typeName, "dictionary", indent: "            ");
+                EmitRecoverableItemRead(builder, sourceGenerationOptions, dictionaryValueType, indexByType, "value", "dictionary[key] = value;", typeName, "dictionary", indent: "            ", recoveredStatement: "if (wasMerged) { dictionary.Remove(key); }");
             }
             else
             {
@@ -5334,6 +5342,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("                    global::System.Collections.Generic.HashSet<string>? dictionaryExplicitKeys = dictionaryMergeEnabled");
                 builder.Append("                        ? new global::System.Collections.Generic.HashSet<string>(").Append(propertyNameComparerExpression).AppendLine(")");
                 builder.AppendLine("                        : null;");
+                builder.AppendLine("                    global::System.Collections.Generic.HashSet<string>? dictionaryMergedKeys = null;");
                 builder.AppendLine("                    global::System.Collections.Generic.HashSet<string>? dictionarySeenKeys = dictionaryMergeEnabled");
                 builder.Append("                        ? new global::System.Collections.Generic.HashSet<string>(").Append(propertyNameComparerExpression).AppendLine(")");
                 builder.AppendLine("                        : null;");
@@ -5373,6 +5382,10 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             {
                 builder.AppendLine("                        if (dictionaryMergeEnabled && global::System.String.Equals(entryKey, \"<<\", global::System.StringComparison.Ordinal))");
                 builder.AppendLine("                        {");
+                builder.AppendLine("                            if (reader.Options.InvalidValueHandling != global::SharpYaml.YamlInvalidValueHandling.FailFast)");
+                builder.AppendLine("                            {");
+                builder.Append("                                dictionaryMergedKeys ??= new global::System.Collections.Generic.HashSet<string>(").Append(propertyNameComparerExpression).AppendLine(");");
+                builder.AppendLine("                            }");
                 builder.AppendLine("                            if (reader.TokenType == global::SharpYaml.Serialization.YamlTokenType.Scalar && global::SharpYaml.Serialization.YamlScalar.IsNull(reader))");
                 builder.AppendLine("                            {");
                 builder.AppendLine("                                reader.Read();");
@@ -5390,6 +5403,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("                                            continue;");
                 builder.AppendLine("                                        }");
                 builder.AppendLine("                                        dictionary[pair.Key] = pair.Value;");
+                builder.AppendLine("                                        dictionaryMergedKeys?.Add(pair.Key);");
                 builder.AppendLine("                                    }");
                 builder.AppendLine("                                }");
                 builder.AppendLine("                            }");
@@ -5413,6 +5427,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("                                                continue;");
                 builder.AppendLine("                                            }");
                 builder.AppendLine("                                            dictionary[pair.Key] = pair.Value;");
+                builder.AppendLine("                                            dictionaryMergedKeys?.Add(pair.Key);");
                 builder.AppendLine("                                        }");
                 builder.AppendLine("                                    }");
                 builder.AppendLine("                                }");
@@ -5425,6 +5440,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("                            continue;");
                 builder.AppendLine("                        }");
                 builder.AppendLine("                        dictionaryExplicitKeys?.Add(entryKey);");
+                builder.AppendLine("                        var dictionaryWasMerged = dictionaryMergedKeys?.Remove(entryKey) == true;");
             }
 
             if (dictionaryKeyType.SpecialType == SpecialType.System_String)
@@ -5437,7 +5453,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                     builder.AppendLine("                        }");
                 }
 
-                EmitRecoverableItemRead(builder, sourceGenerationOptions, dictionaryValueType, indexByType, "value", "dictionary[entryKey] = value;", memberTypeName, "dictionary", indent: "                        ");
+                EmitRecoverableItemRead(builder, sourceGenerationOptions, dictionaryValueType, indexByType, "value", "dictionary[entryKey] = value;", memberTypeName, "dictionary", indent: "                        ", recoveredStatement: "if (dictionaryWasMerged) { dictionary.Remove(entryKey); }");
             }
             else
             {

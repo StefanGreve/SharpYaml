@@ -1117,7 +1117,8 @@ public class YamlSerializerSourceGenerationTests
         AssertGeneratedSourceDoesNotContain(generatedSource, "if (options.");
         AssertGeneratedSourceDoesNotContain(generatedSource, "switch (options.");
         AssertGeneratedSourceDoesNotContain(generatedSource, "writer.Options");
-        AssertGeneratedSourceDoesNotContain(generatedSource, "reader.Options");
+        // Invalid-value handling has no source-generation attribute and is always configured at runtime.
+        AssertGeneratedSourceDoesNotContain(generatedSource.Replace("reader.Options.InvalidValueHandling", string.Empty, StringComparison.Ordinal), "reader.Options");
         AssertGeneratedSourceDoesNotContain(generatedSource, "HasRuntimeCustomConverters");
         AssertGeneratedSourceDoesNotContain(generatedSource, "TryGetCustomConverter");
         AssertGeneratedSourceDoesNotContain(generatedSource, "extensionData is not global::SharpYaml.Model.YamlMapping");

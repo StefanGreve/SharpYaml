@@ -67,9 +67,11 @@ parameter keeps its default value. The key still counts as present, so a require
 missing-member error, and a second occurrence of the key is still a duplicate.
 
 A skipped collection element is dropped, so the collection holds the valid elements in document order. A skipped
-dictionary value drops the whole entry. Its key still counts as seen, so a second occurrence of the key is still a
-duplicate, and a merge key (`<<`) does not fill it in. Dictionary keys are not recovered: a key that fails to convert
-ends the call in every mode.
+dictionary value drops that entry. Its key still counts as seen, so a second occurrence of the key is still a
+duplicate, and a merge key (`<<`) does not fill it in, regardless of its position in the mapping. An earlier valid
+explicit value under `LastWins`, or an existing value in the dictionary being populated, is kept; a merged fallback is
+removed when its explicit replacement is invalid. Dictionary keys are not recovered: a key that fails to convert ends
+the call in every mode.
 
 ```csharp
 var options = new YamlSerializerOptions
